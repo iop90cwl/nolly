@@ -3,33 +3,24 @@
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
-#include <iostream>
 #include <sstream>
 #include <sys/stat.h>
 
 using namespace molly;
-using namespace std;
 
 #define INVALID_FD (-1)
 
 Device::Device()
-: _fd(INVALID_FD)
+  : _fd(INVALID_FD)
 {}
 
 Device::~Device()
 {
   if (_fd != INVALID_FD)
-  {
-    int res = ::close(_fd);
-    if (res != 0)
-    {
-      // Failed to close the file descriptor, however we're in a destructor so cannot safely throw
-      // nor do we know where to log this to. So we just drop it on the floor.
-    }
-  }
+    ::close(_fd);
 }
 
-void Device::open(string devicePath)
+void Device::open(const std::string& devicePath)
 {
   if (_fd != INVALID_FD)
     throw MollyError("Device already open");
@@ -37,17 +28,16 @@ void Device::open(string devicePath)
   struct stat buffer;
   if (stat(devicePath.c_str(), &buffer) == -1)
   {
-    stringstream msg;
+    std::ostringstream msg;
     msg << "Device does not exist: " << strerror(errno);
     throw MollyError(msg.str());
   }
 
-  int fd = ::open(devicePath.c_str(), O_RDWR|O_NONBLOCK);
+  int fd = ::open(devicePath.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
 
   if (fd < 0)
   {
-    _fd = INVALID_FD;
-    stringstream msg;
+    std::ostringstream msg;
     msg << "Error opening device: " << strerror(errno);
     throw MollyError(msg.str());
   }
@@ -61,6 +51,7 @@ void Device::close()
     throw MollyError("Device not open");
 
   int res = ::close(_fd);
+  _fd = INVALID_FD;
 
   if (res != 0)
     throw MollyError("Error closing device");
@@ -71,61 +62,65 @@ DeviceState Device::sample()
   if (_fd == INVALID_FD)
     throw MollyError("Device not yet open");
 
-  char buf[8] = {0x08, 0, 0, 0, 0, 0, 0, 0x02 };
+  // Write the HID report to request state
+  const unsigned char buf[8] = { 0x08, 0, 0, 0, 0, 0, 0, 0x02 };
 
-  ssize_t res = ::write(_fd, buf, 8);
+  ssize_t res = ::write(_fd, buf, sizeof(buf));
 
   if (res < 0)
   {
-    stringstream msg;
+    std::ostringstream msg;
     msg << "Error writing to device: " << strerror(errno);
     throw MollyError(msg.str());
   }
 
-  unsigned char code;
-  res = read(_fd, &code, 1);
+  unsigned char code = 0;
+  res = ::read(_fd, &code, 1);
 
   if (res != 1)
   {
-    if (errno == EAGAIN)
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
       return DeviceState::Unavailable;
 
-    stringstream msg;
+    std::ostringstream msg;
     msg << "Error reading from device: " << strerror(errno);
     throw MollyError(msg.str());
   }
 
   switch (code)
   {
-    case (unsigned char)DeviceState::ButtonPressed:
+    case static_cast<unsigned char>(DeviceState::ButtonPressed):
       return DeviceState::ButtonPressed;
-    case (unsigned char)DeviceState::LidClosed:
+    case static_cast<unsigned char>(DeviceState::LidClosed):
       return DeviceState::LidClosed;
-    case (unsigned char)DeviceState::LidOpen:
+    case static_cast<unsigned char>(DeviceState::LidOpen):
       return DeviceState::LidOpen;
     default:
-      stringstream msg;
-      msg << "Unexpected response: " << (int)code;
+    {
+      std::ostringstream msg;
+      msg << "Unexpected response code: " << static_cast<int>(code);
       throw MollyError(msg.str());
+    }
   }
 }
 
-
 bool Device::isOpen() const
 {
-  // TODO do we have to check whether "errno == EBADF" here if fcntl returns -1?
-  return _fd != INVALID_FD && fcntl(_fd, F_GETFD) != -1;
+  if (_fd == INVALID_FD)
+    return false;
+  // fcntl returns -1 with EBADF if fd is invalid/closed
+  return fcntl(_fd, F_GETFD) != -1;
 }
 
 std::ostream& molly::operator<<(std::ostream& os, DeviceState const& state)
 {
   switch (state)
   {
-    case DeviceState::Unknown:       os << "Unknown";       break;
-    case DeviceState::Unavailable:   os << "Unavailable";   break;
-    case DeviceState::LidClosed:     os << "LidClosed";     break;
-    case DeviceState::ButtonPressed: os << "ButtonPressed"; break;
-    case DeviceState::LidOpen:       os << "LidOpen";       break;
+    case DeviceState::Unknown:       os << "Unknown";        break;
+    case DeviceState::Unavailable:   os << "Unavailable";    break;
+    case DeviceState::LidClosed:     os << "LidClosed";      break;
+    case DeviceState::ButtonPressed: os << "ButtonPressed";  break;
+    case DeviceState::LidOpen:       os << "LidOpen";        break;
   }
   return os;
 }

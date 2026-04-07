@@ -2,16 +2,17 @@
 
 #include <string>
 #include <iosfwd>
+#include <stdexcept>
 
 namespace molly
 {
   enum class DeviceState
   {
-    Unknown = -2,
-    Unavailable = -1,
-    LidClosed = 21,
+    Unknown       = -2,
+    Unavailable   = -1,
+    LidClosed     = 21,
     ButtonPressed = 22,
-    LidOpen = 23
+    LidOpen       = 23
   };
 
   std::ostream& operator<<(std::ostream& os, DeviceState const& state);
@@ -19,11 +20,11 @@ namespace molly
   class MollyError : public std::exception
   {
   public:
-    MollyError(std::string message)
-    : _message(message)
+    explicit MollyError(const std::string& message)
+      : _message(message)
     {}
 
-    const char* what() const _GLIBCXX_USE_NOEXCEPT override
+    const char* what() const noexcept override
     {
       return _message.c_str();
     }
@@ -38,7 +39,11 @@ namespace molly
     Device();
     ~Device();
 
-    void open(std::string devicePath);
+    // Non-copyable
+    Device(const Device&) = delete;
+    Device& operator=(const Device&) = delete;
+
+    void open(const std::string& devicePath);
     void close();
     DeviceState sample();
 

@@ -1,124 +1,173 @@
 #include "device.hh"
+#include "config.hh"
 
 #include <iostream>
 #include <unistd.h>
+#include <fcntl.h>
 #include <syslog.h>
 #include <csignal>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <cstring>
+#include <atomic>
+#include <vector>
 #include <sstream>
-#include <string.h>
 
 using namespace molly;
-using namespace std;
 
-// TODO deal with device being unplugged and replugged
-// TODO configuration from file or cmdline args
-// TODO use exec instead of system?
-// TODO system returning non-zero for some reason
+static std::atomic<bool> g_shutdown{false};
 
-void runCommand(std::string command)
+static void handleSignal(int signo)
 {
+  syslog(LOG_INFO, "Received signal %s -- shutting down", strsignal(signo));
+  g_shutdown.store(true);
+}
+
+// Safe command runner: uses execvp instead of system() to avoid shell injection.
+// The command string is split on whitespace into argv.
+static void runCommand(const std::string& command)
+{
+  if (command.empty())
+    return;
+
+  // Tokenise the command into argv
+  std::vector<std::string> args;
+  std::istringstream iss(command);
+  std::string token;
+  while (iss >> token)
+    args.push_back(token);
+
+  if (args.empty())
+    return;
+
   pid_t pid = fork();
 
   if (pid < 0)
   {
     syslog(LOG_ERR, "Error forking to invoke command: %s", command.c_str());
+    return;
   }
-  else if (pid == 0)
+
+  if (pid == 0)
   {
+    // Child process
+    // Build a null-terminated argv array
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
+    for (auto& a : args)
+      argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+
     syslog(LOG_INFO, "Invoking command: %s", command.c_str());
-    if (system(command.c_str()) != 0)
-      syslog(LOG_ERR, "Error making system call with command: %s", command.c_str());
-    exit(0);
+    execvp(argv[0], argv.data());
+
+    // execvp only returns on error
+    syslog(LOG_ERR, "execvp failed for command '%s': %s", command.c_str(), strerror(errno));
+    _exit(1);
   }
+
+  // Parent: reap child asynchronously (SIGCHLD is SIG_DFL or handled)
 }
 
-bool shutdown = false;
-
-int main()
+static void daemonize()
 {
-  if (setlogmask(LOG_UPTO(LOG_INFO)) < 0)
-  {
-    cerr << "Error setting log mask" << endl;
-    exit(1);
-  }
-
-  openlog("mollyd", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_USER);
-  syslog(LOG_INFO, "Starting mollyd");
-
   pid_t pid = fork();
 
   if (pid < 0)
   {
-    syslog(LOG_ERR, "Unable for fork child process");
-    cerr << "Unable for fork child process" << endl;
-    exit(1);
+    syslog(LOG_ERR, "Unable to fork child process");
+    std::cerr << "Unable to fork child process\n";
+    exit(EXIT_FAILURE);
   }
 
   if (pid > 0)
   {
-    // We successfully created the child process and received its PID.
-    // The child receives a PID of zero and falls through.
-    // As we're the parent, we should now exit.
-    stringstream msg;
-    msg << "mollyd started with PID " << pid;
-    syslog(LOG_ERR, "%s", msg.str().c_str());
-    cout << msg.str() << endl;
+    // Parent exits, child continues
+    syslog(LOG_INFO, "mollyd started with PID %d", pid);
+    std::cout << "mollyd started with PID " << pid << "\n";
     exit(EXIT_SUCCESS);
   }
 
-  // Make this child process the session leader
+  // Make this process the session leader
   if (setsid() < 0)
   {
-    syslog(LOG_ERR, "Unable to set session ID for process");
+    syslog(LOG_ERR, "Unable to set session ID");
     exit(EXIT_FAILURE);
   }
 
-  // Ignore SIGCHLD and SIGHUP signals
-  signal(SIGCHLD, SIG_IGN);
-  signal(SIGHUP, SIG_IGN);
-  signal(SIGKILL, [](int signo)
-  {
-      syslog(LOG_INFO, "Received %s -- shutting down", strsignal(signo));
-      shutdown = true;
-  });
-
-  // Change the file mask
-  umask(0);
-
-  // Set the process's working directory to something that is guaranteed to exist
+  // Change working directory to something guaranteed to exist
   if (chdir("/") < 0)
   {
-    syslog(LOG_ERR, "Unable to set working directory.");
-    exit(1);
+    syslog(LOG_ERR, "Unable to set working directory");
+    exit(EXIT_FAILURE);
   }
 
-  // Close standard in/out/err file descriptors for this process.
-  // Reopen them to /dev/null to avoid errors if code attempts to use them.
+  umask(0);
+
+  // Redirect standard streams to /dev/null
   close(STDIN_FILENO);
   close(STDOUT_FILENO);
   close(STDERR_FILENO);
-  stdin = fopen("/dev/null", "r");
-  stdout = fopen("/dev/null", "w+");
-  stderr = fopen("/dev/null", "w+");
+
+  int devNull = open("/dev/null", O_RDWR);
+  if (devNull >= 0)
+  {
+    dup2(devNull, STDIN_FILENO);
+    dup2(devNull, STDOUT_FILENO);
+    dup2(devNull, STDERR_FILENO);
+    if (devNull > STDERR_FILENO)
+      close(devNull);
+  }
+}
+
+int main(int argc, char* argv[])
+{
+  const std::string configPath = (argc > 1) ? argv[1] : "/etc/mollyd.conf";
+
+  openlog("mollyd", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_USER);
+  setlogmask(LOG_UPTO(LOG_INFO));
+  syslog(LOG_INFO, "Starting mollyd");
+
+  Config config;
+  config.loadFromFile(configPath);
+
+  daemonize();
+
+  // Set up signal handlers after daemonizing
+  struct sigaction sa{};
+  sa.sa_handler = handleSignal;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+
+  sigaction(SIGTERM, &sa, nullptr);
+  sigaction(SIGINT,  &sa, nullptr);
+
+  // Reap children automatically to avoid zombies
+  struct sigaction sa_chld{};
+  sa_chld.sa_handler = SIG_DFL;
+  sa_chld.sa_flags = SA_NOCLDWAIT;
+  sigaction(SIGCHLD, &sa_chld, nullptr);
+
+  // Ignore SIGHUP (could be used for config reload in the future)
+  signal(SIGHUP, SIG_IGN);
 
   DeviceState lastState = DeviceState::Unknown;
   Device device;
 
-  while (!shutdown)
+  while (!g_shutdown.load())
   {
     if (!device.isOpen())
     {
       try
       {
-        syslog(LOG_INFO, "Opening device");
-        device.open("/dev/big_red_button");
+        syslog(LOG_INFO, "Opening device: %s", config.devicePath.c_str());
+        device.open(config.devicePath);
         syslog(LOG_INFO, "Device opened");
       }
-      catch (MollyError err)
+      catch (const MollyError& err)
       {
-        syslog(LOG_ERR, "Error trying to open device: %s", err.what());
-        usleep(100 * 1000);
+        syslog(LOG_ERR, "Error opening device: %s", err.what());
+        usleep(500 * 1000); // 500ms retry delay
         continue;
       }
     }
@@ -128,20 +177,10 @@ int main()
     {
       state = device.sample();
     }
-    catch (MollyError err)
+    catch (const MollyError& err)
     {
       syslog(LOG_ERR, "Error reading from device: %s", err.what());
-
-      try
-      {
-        device.close();
-        syslog(LOG_INFO, "Device closed");
-      }
-      catch (MollyError err)
-      {
-        syslog(LOG_ERR, "Error closing device: %s", err.what());
-      }
-
+      try { device.close(); } catch (...) {}
       continue;
     }
 
@@ -151,29 +190,37 @@ int main()
         if (lastState != DeviceState::ButtonPressed)
         {
           syslog(LOG_INFO, "STATE: Pressed");
-          runCommand("espeak pressed");
+          runCommand(config.onPress);
         }
         break;
+
       case DeviceState::LidOpen:
         if (lastState != DeviceState::LidOpen && lastState != DeviceState::ButtonPressed)
         {
           syslog(LOG_INFO, "STATE: Open");
-          runCommand("espeak open");
+          runCommand(config.onOpen);
         }
         break;
+
       case DeviceState::LidClosed:
         if (lastState != DeviceState::LidClosed)
         {
           syslog(LOG_INFO, "STATE: Closed");
-          runCommand("espeak closed");
+          runCommand(config.onClose);
         }
         break;
+
       default:
-        continue;
+        break;
     }
 
-    lastState = state;
+    if (state != DeviceState::Unavailable)
+      lastState = state;
 
-    usleep(20 * 000);
+    usleep(20 * 1000); // 20ms poll interval
   }
+
+  syslog(LOG_INFO, "mollyd stopped");
+  closelog();
+  return EXIT_SUCCESS;
 }

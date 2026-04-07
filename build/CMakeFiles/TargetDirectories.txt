@@ -1,0 +1,8 @@
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/molly-test.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/mollyd.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/edit_cache.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/rebuild_cache.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/list_install_components.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/install.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/install/local.dir
+/home/cwlandes/bigredbutton/molly3/build/CMakeFiles/install/strip.dir

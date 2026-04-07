@@ -1,0 +1,18 @@
+# mollyd configuration file
+# Copy to /etc/mollyd.conf or pass path as first argument: mollyd /path/to/mollyd.conf
+#
+# All keys are optional. Defaults are shown below.
+
+# Path to the USB HID device
+device = /dev/big_red_button
+
+# Command to run when the lid is opened.
+# The command is executed directly (no shell), so shell features like pipes
+# and redirects are not available. Use a wrapper script for complex logic.
+on_open = /usr/local/bin/molly-open.sh
+
+# Command to run when the button is pressed.
+on_press = /usr/local/bin/molly-press.sh
+
+# Command to run when the lid is closed.
+on_close = /usr/local/bin/molly-close.sh

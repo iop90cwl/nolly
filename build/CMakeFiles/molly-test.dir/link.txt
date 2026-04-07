@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/molly-test.dir/link.d "CMakeFiles/molly-test.dir/molly-test.cc.o" "CMakeFiles/molly-test.dir/device.cc.o" -o molly-test

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/mollyd.dir/link.d "CMakeFiles/mollyd.dir/molly-daemon.cc.o" CMakeFiles/mollyd.dir/device.cc.o CMakeFiles/mollyd.dir/config.cc.o -o mollyd
