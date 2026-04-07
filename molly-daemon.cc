@@ -13,7 +13,6 @@
 #include <atomic>
 #include <vector>
 #include <sstream>
-#include <algorithm>
 
 using namespace molly;
 
@@ -66,36 +65,16 @@ static void runCommand(const std::string& command)
 
     if (!g_sessionEnv.empty())
     {
-      // Merge session env on top of current env.
-      // Start with the existing environ, then override with session vars.
-      std::vector<std::string> merged;
-      extern char** environ;
-      for (char** e = environ; e && *e; ++e)
-        merged.push_back(*e);
-
-      // Override/add session vars
+      // Inject session env vars into the child's environment.
+      // setenv before execvp so PATH-based lookup still works for bare command names.
       for (const auto& kv : g_sessionEnv)
       {
         const auto eq = kv.find('=');
         if (eq == std::string::npos) continue;
-        const std::string key = kv.substr(0, eq) + "=";
-        // Remove existing entry with same key
-        merged.erase(std::remove_if(merged.begin(), merged.end(),
-          [&key](const std::string& e){ return e.substr(0, key.size()) == key; }),
-          merged.end());
-        merged.push_back(kv);
+        const std::string key = kv.substr(0, eq);
+        const std::string val = kv.substr(eq + 1);
+        setenv(key.c_str(), val.c_str(), 1 /*overwrite*/);
       }
-
-      std::vector<char*> envp;
-      envp.reserve(merged.size() + 1);
-      for (auto& e : merged)
-        envp.push_back(const_cast<char*>(e.c_str()));
-      envp.push_back(nullptr);
-
-      execve(argv[0], argv.data(), envp.data());
-
-      // execve with absolute path failed — try PATH search via execvpe
-      // by falling through to execvp below
     }
 
     execvp(argv[0], argv.data());
@@ -193,6 +172,10 @@ int main(int argc, char* argv[])
   DeviceState lastState = DeviceState::Unknown;
   Device device;
 
+  // Prime lastState from the first successful sample so we don't fire
+  // commands on startup just because the device is already in some state.
+  bool primed = false;
+
   while (!g_shutdown.load())
   {
     if (!device.isOpen())
@@ -202,6 +185,7 @@ int main(int argc, char* argv[])
         syslog(LOG_INFO, "Opening device: %s", config.devicePath.c_str());
         device.open(config.devicePath);
         syslog(LOG_INFO, "Device opened");
+        primed = false; // re-prime after reconnect
       }
       catch (const MollyError& err)
       {
@@ -220,6 +204,21 @@ int main(int argc, char* argv[])
     {
       syslog(LOG_ERR, "Error reading from device: %s", err.what());
       try { device.close(); } catch (...) {}
+      continue;
+    }
+
+    if (state == DeviceState::Unavailable)
+    {
+      usleep(config.pollIntervalMs * 1000);
+      continue;
+    }
+
+    // On first valid read after open, record state without firing any command.
+    if (!primed)
+    {
+      lastState = state;
+      primed = true;
+      usleep(config.pollIntervalMs * 1000);
       continue;
     }
 
@@ -253,8 +252,7 @@ int main(int argc, char* argv[])
         break;
     }
 
-    if (state != DeviceState::Unavailable)
-      lastState = state;
+    lastState = state;
 
     usleep(config.pollIntervalMs * 1000);
   }
