@@ -1,7 +1,25 @@
-.idea
-/CMakeCache.txt
-/CMakeFiles/
-/Makefile
-/cmake_install.cmake
-/molly-test
-/mollyd
+# Build output
+build/
+*.o
+*.a
+*.so
+mollyd
+molly-test
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# Temp/debug files
+*.txt.bak
+git_out.txt
+branch_out.txt
+branch_err.txt
+branch_rc.txt
+remote_err.txt
+remote_rc.txt
+build_err.txt
+build_rc.txt
