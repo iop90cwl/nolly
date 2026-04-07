@@ -27,8 +27,9 @@ static void handleSignal(int signo)
   g_shutdown.store(true);
 }
 
-// Safe command runner: uses execvpe instead of system() to avoid shell injection.
-// Injects the captured desktop session environment so D-Bus/display tools work.
+// Safe command runner: uses execvp instead of system() to avoid shell injection.
+// Injects the desktop session environment so D-Bus/display tools like notify-send work.
+// Session env is captured lazily and re-attempted if not yet available.
 static void runCommand(const std::string& command)
 {
   if (command.empty())
@@ -43,6 +44,11 @@ static void runCommand(const std::string& command)
 
   if (args.empty())
     return;
+
+  // Re-attempt session env capture if we don't have it yet (e.g. daemon started
+  // before the desktop session was up, which is common with systemd).
+  if (g_sessionEnv.empty())
+    g_sessionEnv = captureSessionEnv();
 
   pid_t pid = fork();
 
@@ -63,18 +69,12 @@ static void runCommand(const std::string& command)
 
     syslog(LOG_INFO, "Invoking command: %s", command.c_str());
 
-    if (!g_sessionEnv.empty())
+    // Inject session env vars so PATH-based lookup and D-Bus both work.
+    for (const auto& kv : g_sessionEnv)
     {
-      // Inject session env vars into the child's environment.
-      // setenv before execvp so PATH-based lookup still works for bare command names.
-      for (const auto& kv : g_sessionEnv)
-      {
-        const auto eq = kv.find('=');
-        if (eq == std::string::npos) continue;
-        const std::string key = kv.substr(0, eq);
-        const std::string val = kv.substr(eq + 1);
-        setenv(key.c_str(), val.c_str(), 1 /*overwrite*/);
-      }
+      const auto eq = kv.find('=');
+      if (eq == std::string::npos) continue;
+      setenv(kv.substr(0, eq).c_str(), kv.substr(eq + 1).c_str(), 1);
     }
 
     execvp(argv[0], argv.data());
@@ -145,9 +145,6 @@ int main(int argc, char* argv[])
 
   Config config;
   config.loadFromFile(configPath);
-
-  // Capture desktop session environment before daemonizing
-  g_sessionEnv = captureSessionEnv();
 
   daemonize();
 
