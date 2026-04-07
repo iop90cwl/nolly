@@ -57,6 +57,41 @@ Stop it with:
 
     $ kill $(pgrep mollyd)
 
+## Installing as a systemd service
+
+This is the recommended way to run `mollyd` so it starts automatically on boot.
+
+**1. Install the binary**
+
+    $ sudo cp build/mollyd /usr/local/bin/mollyd
+
+**2. Set up the config**
+
+    $ sudo cp mollyd.conf.example /etc/mollyd.conf
+    $ sudo nano /etc/mollyd.conf
+
+**3. Install the service unit**
+
+    $ sudo cp contrib/mollyd.service /etc/systemd/system/mollyd.service
+    $ sudo systemctl daemon-reload
+
+**4. Enable and start**
+
+    $ sudo systemctl enable mollyd   # start on boot
+    $ sudo systemctl start mollyd
+
+**5. Check it's running**
+
+    $ sudo systemctl status mollyd
+    $ journalctl -t mollyd -f        # follow logs
+
+**Stopping / restarting**
+
+    $ sudo systemctl stop mollyd
+    $ sudo systemctl restart mollyd
+
+> Note: `mollyd` captures the desktop session environment at startup to support tools like `notify-send`. If you log out and back in, restart the daemon so it picks up the new session.
+
 ## mollyd.conf
 
 Copy `mollyd.conf.example` to `/etc/mollyd.conf` and edit to taste. All keys are optional.

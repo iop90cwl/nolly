@@ -1,0 +1,13 @@
+[Unit]
+Description=nolly Big Red Button daemon
+Documentation=https://github.com/iop90cwl/nolly
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/mollyd /etc/mollyd.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
