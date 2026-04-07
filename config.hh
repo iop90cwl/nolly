@@ -10,6 +10,7 @@ namespace molly
     std::string onOpen       = "";
     std::string onPress      = "";
     std::string onClose      = "";
+    int         pollIntervalMs = 20;
 
     // Load from file; missing keys keep their defaults.
     // Returns false and logs a warning if the file cannot be opened.

@@ -1,54 +1,92 @@
-# molly
+# nolly
 
-Linux tools for the "Big Red Button" USB device manufactured by Dream Cheeky.
+Modernized Linux tools for the "Big Red Button" USB device manufactured by Dream Cheeky.
+
+Forked from [drewnoakes/molly](https://github.com/drewnoakes/molly).
 
 ![Big Red Button](big-red-button.png)
 
-Allows running arbitrary shell scripts in response to open, close and button press events.
+Run arbitrary commands in response to open, close, and button press events.
 
 ## Build
 
-The project uses CMake.
+Requires CMake 3.14+ and a C++17 compiler.
 
-    cmake .
-    make
+    cmake -B build
+    cmake --build build
 
-## Configure
+## Configure udev
 
-Set up a `udev` rule to mount the USB device under a known path and with read/write permissions for all users.
+Set up a `udev` rule to mount the USB device under a known path with read/write permissions.
 
-    $ sudo vim /etc/udev/rules.d/99-big-red-button.rules
+    $ sudo nano /etc/udev/rules.d/99-big-red-button.rules
 
-Add the following text:
+Add:
 
     ACTION=="add", ENV{ID_MODEL}=="DL100B_Dream_Cheeky_Generic_Controller", SYMLINK+="big_red_button", MODE="0666"
 
-This rule causes a device having `ID_MODEL` of `DL100B_Dream_Cheeky_Generic_Controller` to be mounted at `/dev/big_red_button` with permissions `666` (read/write for owner,group,other).
-
-Reload the udev rules:
+Reload the rules:
 
     $ sudo udevadm control --reload-rules
 
+Unplug and replug the device. `/dev/big_red_button` should now exist.
+
 ## Test
 
-Plug in the button (if already plugged in, unplug then replug it) and check that `/dev/big_red_button` exists.
-
-Test your button is working via the `molly-test` command. It will log all state transitions.
-
-    $ ./molly-test
+    $ ./build/molly-test
+    Monitoring /dev/big_red_button (Ctrl+C to quit)
     Closed from Unknown
     OPEN...
     PRESS!!!
     Closed from LidOpen
 
+You can also pass a custom device path:
+
+    $ ./build/molly-test /dev/my_device
+
 ## Daemon
 
-The project includes `mollyd`, a Linux daemon process that runs silently in the background.
+`mollyd` is a background daemon that monitors the button and runs configured commands on state changes.
 
-> Currently this daemon's behaviour is hard coded. Future changes will make this configurable, and hence more broadly useful.
+    $ ./build/mollyd
+    $ ./build/mollyd /path/to/mollyd.conf   # custom config path
 
-## TODO
+Logs go to syslog (`journalctl -t mollyd` on systemd systems).
 
-Currently the basic functionality is there but some settings are hard coded. Some work is needed to make this utility broadly useful.
+Stop it with:
 
-It would also be good to have this daemon start and stop in response to the USB device being added and removed, avoiding the need to poll.
+    $ kill $(pgrep mollyd)
+
+## mollyd.conf
+
+Copy `mollyd.conf.example` to `/etc/mollyd.conf` and edit to taste. All keys are optional.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `device` | `/dev/big_red_button` | Path to the USB HID device |
+| `on_open` | _(none)_ | Command to run when the lid is opened |
+| `on_press` | _(none)_ | Command to run when the button is pressed |
+| `on_close` | _(none)_ | Command to run when the lid is closed |
+| `poll_interval_ms` | `20` | Device polling interval in milliseconds |
+
+Example:
+
+    device = /dev/big_red_button
+    on_open  = notify-send "Big Red Button" "Lid opened"
+    on_press = notify-send "Big Red Button" "Button pressed!"
+    on_close = notify-send "Big Red Button" "Lid closed"
+    poll_interval_ms = 20
+
+Commands are executed directly without a shell, so pipes and redirects won't work inline — use a script for anything complex.
+
+### Desktop session commands (notify-send, kdialog, etc.)
+
+The daemon automatically captures the desktop session environment at startup (D-Bus address, display, XDG runtime dir, etc.) from a running session process like `plasmashell` or `gnome-shell`. This means tools like `notify-send` work directly in the config without any wrapper scripts.
+
+### Polling interval
+
+The default 20ms interval gives responsive feel with negligible CPU usage. You can raise it (e.g. `poll_interval_ms = 100`) if you want to reduce CPU use further, or lower it for faster response. Values below ~10ms are unlikely to be useful given USB HID report rates.
+
+## Security
+
+Commands are run via `execvp` rather than `system()`, which avoids shell injection vulnerabilities. Each command is forked as a child process and the daemon continues polling while it runs.

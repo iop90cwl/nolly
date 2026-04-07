@@ -58,6 +58,21 @@ bool molly::Config::loadFromFile(const std::string& path)
       onPress = value;
     else if (key == "on_close")
       onClose = value;
+    else if (key == "poll_interval_ms")
+    {
+      try
+      {
+        const int val = std::stoi(value);
+        if (val < 1)
+          syslog(LOG_WARNING, "Config: poll_interval_ms must be >= 1, ignoring value %d", val);
+        else
+          pollIntervalMs = val;
+      }
+      catch (...)
+      {
+        syslog(LOG_WARNING, "Config: invalid poll_interval_ms value '%s' on line %d", value.c_str(), lineNum);
+      }
+    }
     else
       syslog(LOG_WARNING, "Config: unknown key '%s' on line %d", key.c_str(), lineNum);
   }

@@ -256,7 +256,7 @@ int main(int argc, char* argv[])
     if (state != DeviceState::Unavailable)
       lastState = state;
 
-    usleep(20 * 1000); // 20ms poll interval
+    usleep(config.pollIntervalMs * 1000);
   }
 
   syslog(LOG_INFO, "mollyd stopped");

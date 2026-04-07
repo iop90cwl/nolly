@@ -7,12 +7,19 @@
 device = /dev/big_red_button
 
 # Command to run when the lid is opened.
-# The command is executed directly (no shell), so shell features like pipes
+# Commands are executed directly (no shell), so shell features like pipes
 # and redirects are not available. Use a wrapper script for complex logic.
-on_open = /usr/local/bin/molly-open.sh
+# Desktop session environment (DBUS_SESSION_BUS_ADDRESS, DISPLAY, etc.) is
+# automatically injected, so tools like notify-send work without a wrapper.
+on_open = notify-send "Big Red Button" "Lid opened"
 
 # Command to run when the button is pressed.
-on_press = /usr/local/bin/molly-press.sh
+on_press = notify-send "Big Red Button" "Button pressed!"
 
 # Command to run when the lid is closed.
-on_close = /usr/local/bin/molly-close.sh
+on_close = notify-send "Big Red Button" "Lid closed"
+
+# How often to poll the device for state changes, in milliseconds.
+# Lower values are more responsive but use slightly more CPU.
+# Default: 20
+# poll_interval_ms = 20
