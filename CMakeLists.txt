@@ -10,7 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options(-Wall -Wextra -Wpedantic -Wformat=2 -Wshadow)
 
 # Shared device + config sources
-set(COMMON_SOURCES device.cc config.cc)
+set(COMMON_SOURCES device.cc config.cc session_env.cc)
 
 add_executable(molly-test molly-test.cc device.cc)
 target_compile_options(molly-test PRIVATE -Wall -Wextra)

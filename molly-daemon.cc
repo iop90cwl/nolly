@@ -1,5 +1,6 @@
 #include "device.hh"
 #include "config.hh"
+#include "session_env.hh"
 
 #include <iostream>
 #include <unistd.h>
@@ -12,10 +13,14 @@
 #include <atomic>
 #include <vector>
 #include <sstream>
+#include <algorithm>
 
 using namespace molly;
 
 static std::atomic<bool> g_shutdown{false};
+
+// Session environment captured at startup for passing to child processes
+static std::vector<std::string> g_sessionEnv;
 
 static void handleSignal(int signo)
 {
@@ -23,8 +28,8 @@ static void handleSignal(int signo)
   g_shutdown.store(true);
 }
 
-// Safe command runner: uses execvp instead of system() to avoid shell injection.
-// The command string is split on whitespace into argv.
+// Safe command runner: uses execvpe instead of system() to avoid shell injection.
+// Injects the captured desktop session environment so D-Bus/display tools work.
 static void runCommand(const std::string& command)
 {
   if (command.empty())
@@ -50,8 +55,7 @@ static void runCommand(const std::string& command)
 
   if (pid == 0)
   {
-    // Child process
-    // Build a null-terminated argv array
+    // Build null-terminated argv
     std::vector<char*> argv;
     argv.reserve(args.size() + 1);
     for (auto& a : args)
@@ -59,14 +63,46 @@ static void runCommand(const std::string& command)
     argv.push_back(nullptr);
 
     syslog(LOG_INFO, "Invoking command: %s", command.c_str());
+
+    if (!g_sessionEnv.empty())
+    {
+      // Merge session env on top of current env.
+      // Start with the existing environ, then override with session vars.
+      std::vector<std::string> merged;
+      extern char** environ;
+      for (char** e = environ; e && *e; ++e)
+        merged.push_back(*e);
+
+      // Override/add session vars
+      for (const auto& kv : g_sessionEnv)
+      {
+        const auto eq = kv.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = kv.substr(0, eq) + "=";
+        // Remove existing entry with same key
+        merged.erase(std::remove_if(merged.begin(), merged.end(),
+          [&key](const std::string& e){ return e.substr(0, key.size()) == key; }),
+          merged.end());
+        merged.push_back(kv);
+      }
+
+      std::vector<char*> envp;
+      envp.reserve(merged.size() + 1);
+      for (auto& e : merged)
+        envp.push_back(const_cast<char*>(e.c_str()));
+      envp.push_back(nullptr);
+
+      execve(argv[0], argv.data(), envp.data());
+
+      // execve with absolute path failed — try PATH search via execvpe
+      // by falling through to execvp below
+    }
+
     execvp(argv[0], argv.data());
 
-    // execvp only returns on error
-    syslog(LOG_ERR, "execvp failed for command '%s': %s", command.c_str(), strerror(errno));
+    syslog(LOG_ERR, "exec failed for command '%s': %s", command.c_str(), strerror(errno));
     _exit(1);
   }
-
-  // Parent: reap child asynchronously (SIGCHLD is SIG_DFL or handled)
 }
 
 static void daemonize()
@@ -130,6 +166,9 @@ int main(int argc, char* argv[])
 
   Config config;
   config.loadFromFile(configPath);
+
+  // Capture desktop session environment before daemonizing
+  g_sessionEnv = captureSessionEnv();
 
   daemonize();
 
