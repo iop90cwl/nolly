@@ -86,6 +86,15 @@ static void runCommand(const std::string& command)
 
 static void daemonize()
 {
+  // When running under systemd, daemonizing is unnecessary — systemd manages
+  // the process lifecycle. We still do it for non-systemd use (running manually).
+  // Detect systemd by checking for the INVOCATION_ID env var it always sets.
+  if (getenv("INVOCATION_ID") != nullptr)
+  {
+    syslog(LOG_INFO, "Running under systemd, skipping daemonize");
+    return;
+  }
+
   pid_t pid = fork();
 
   if (pid < 0)

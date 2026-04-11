@@ -4,7 +4,7 @@ Documentation=https://github.com/iop90cwl/nolly
 After=multi-user.target
 
 [Service]
-Type=forking
+Type=simple
 # Run as the user who owns the desktop session.
 # Replace 'youruser' with your actual username.
 User=youruser
