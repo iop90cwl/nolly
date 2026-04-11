@@ -86,15 +86,6 @@ static void runCommand(const std::string& command)
 
 static void daemonize()
 {
-  // When running under systemd, daemonizing is unnecessary — systemd manages
-  // the process lifecycle. We still do it for non-systemd use (running manually).
-  // Detect systemd by checking for the INVOCATION_ID env var it always sets.
-  if (getenv("INVOCATION_ID") != nullptr)
-  {
-    syslog(LOG_INFO, "Running under systemd, skipping daemonize");
-    return;
-  }
-
   pid_t pid = fork();
 
   if (pid < 0)
@@ -106,20 +97,17 @@ static void daemonize()
 
   if (pid > 0)
   {
-    // Parent exits, child continues
     syslog(LOG_INFO, "mollyd started with PID %d", pid);
     std::cout << "mollyd started with PID " << pid << "\n";
     exit(EXIT_SUCCESS);
   }
 
-  // Make this process the session leader
   if (setsid() < 0)
   {
     syslog(LOG_ERR, "Unable to set session ID");
     exit(EXIT_FAILURE);
   }
 
-  // Change working directory to something guaranteed to exist
   if (chdir("/") < 0)
   {
     syslog(LOG_ERR, "Unable to set working directory");
@@ -128,7 +116,6 @@ static void daemonize()
 
   umask(0);
 
-  // Redirect standard streams to /dev/null
   close(STDIN_FILENO);
   close(STDOUT_FILENO);
   close(STDERR_FILENO);
@@ -146,7 +133,17 @@ static void daemonize()
 
 int main(int argc, char* argv[])
 {
-  const std::string configPath = (argc > 1) ? argv[1] : "/etc/mollyd.conf";
+  // Parse args: optional --foreground flag, optional config path
+  bool foreground = false;
+  std::string configPath = "/etc/mollyd.conf";
+
+  for (int i = 1; i < argc; ++i)
+  {
+    if (std::string(argv[i]) == "--foreground")
+      foreground = true;
+    else
+      configPath = argv[i];
+  }
 
   openlog("mollyd", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_USER);
   setlogmask(LOG_UPTO(LOG_INFO));
@@ -155,7 +152,8 @@ int main(int argc, char* argv[])
   Config config;
   config.loadFromFile(configPath);
 
-  daemonize();
+  if (!foreground)
+    daemonize();
 
   // Set up signal handlers after daemonizing
   struct sigaction sa{};

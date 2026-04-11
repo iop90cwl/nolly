@@ -8,7 +8,7 @@ Type=simple
 # Run as the user who owns the desktop session.
 # Replace 'youruser' with your actual username.
 User=youruser
-ExecStart=/usr/local/bin/mollyd /etc/mollyd.conf
+ExecStart=/usr/local/bin/mollyd --foreground /etc/mollyd.conf
 Restart=on-failure
 RestartSec=5
 

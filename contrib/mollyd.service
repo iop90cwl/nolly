@@ -6,7 +6,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mollyd %h/.config/mollyd.conf
+ExecStart=/usr/local/bin/mollyd --foreground %h/.config/mollyd.conf
 Restart=on-failure
 RestartSec=5
 PassEnvironment=DBUS_SESSION_BUS_ADDRESS WAYLAND_DISPLAY XDG_RUNTIME_DIR DISPLAY
