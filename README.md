@@ -59,7 +59,11 @@ Stop it with:
 
 ## Installing as a systemd service
 
-This is the recommended way to run `mollyd` so it starts automatically on boot.
+Two options depending on your preference. The user service is recommended — it runs in your desktop session so `notify-send`, `kdialog`, and other session tools work without any extra configuration.
+
+### Option A: User service (recommended)
+
+Runs as your user, starts with your desktop session. No root required after install.
 
 **1. Install the binary**
 
@@ -67,30 +71,59 @@ This is the recommended way to run `mollyd` so it starts automatically on boot.
 
 **2. Set up the config**
 
-    $ sudo cp mollyd.conf.example /etc/mollyd.conf
-    $ sudo nano /etc/mollyd.conf
+    $ mkdir -p ~/.config
+    $ cp mollyd.conf.example ~/.config/mollyd.conf
+    $ nano ~/.config/mollyd.conf
 
-**3. Install the service unit**
+**3. Install the user service**
 
-    $ sudo cp contrib/mollyd.service /etc/systemd/system/mollyd.service
-    $ sudo systemctl daemon-reload
+    $ mkdir -p ~/.config/systemd/user
+    $ cp contrib/mollyd.service ~/.config/systemd/user/mollyd.service
+    $ systemctl --user daemon-reload
 
 **4. Enable and start**
 
-    $ sudo systemctl enable mollyd   # start on boot
-    $ sudo systemctl start mollyd
+    $ systemctl --user enable mollyd
+    $ systemctl --user start mollyd
 
 **5. Check it's running**
 
-    $ sudo systemctl status mollyd
-    $ journalctl -t mollyd -f        # follow logs
+    $ systemctl --user status mollyd
+    $ journalctl --user -t mollyd -f
 
 **Stopping / restarting**
 
-    $ sudo systemctl stop mollyd
-    $ sudo systemctl restart mollyd
+    $ systemctl --user stop mollyd
+    $ systemctl --user restart mollyd
 
-> Note: `mollyd` captures the desktop session environment at startup to support tools like `notify-send`. If you log out and back in, restart the daemon so it picks up the new session.
+---
+
+### Option B: System service
+
+Runs at boot as a specific user. Use this if you want the daemon running before login or need system-wide install.
+
+**1. Install the binary and config**
+
+    $ sudo cp build/mollyd /usr/local/bin/mollyd
+    $ sudo cp mollyd.conf.example /etc/mollyd.conf
+    $ sudo nano /etc/mollyd.conf
+
+**2. Edit the service file** — set `User=` to your username
+
+    $ nano contrib/mollyd-system.service
+
+**3. Install and enable**
+
+    $ sudo cp contrib/mollyd-system.service /etc/systemd/system/mollyd.service
+    $ sudo systemctl daemon-reload
+    $ sudo systemctl enable mollyd
+    $ sudo systemctl start mollyd
+
+**4. Check logs**
+
+    $ journalctl -t mollyd -f
+
+> Note: with the system service, desktop session commands like `notify-send` require the daemon to be running after your session starts. The daemon retries session environment capture on each command invocation, so it will pick up your session automatically once you log in.
 
 ## mollyd.conf
 

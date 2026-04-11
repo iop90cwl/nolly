@@ -1,13 +1,18 @@
 [Unit]
 Description=nolly Big Red Button daemon
 Documentation=https://github.com/iop90cwl/nolly
-After=network.target
+# Start after the desktop session bus is available
+After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=forking
-ExecStart=/usr/local/bin/mollyd /etc/mollyd.conf
+ExecStart=/usr/local/bin/mollyd %h/.config/mollyd.conf
 Restart=on-failure
 RestartSec=5
+# Pass the session D-Bus and display env through to the daemon
+Environment=DISPLAY=:0
+PassEnvironment=DBUS_SESSION_BUS_ADDRESS WAYLAND_DISPLAY XDG_RUNTIME_DIR DISPLAY
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical-session.target

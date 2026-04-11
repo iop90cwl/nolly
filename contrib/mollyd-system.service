@@ -1,0 +1,16 @@
+[Unit]
+Description=nolly Big Red Button daemon (system service)
+Documentation=https://github.com/iop90cwl/nolly
+After=multi-user.target
+
+[Service]
+Type=forking
+# Run as the user who owns the desktop session.
+# Replace 'youruser' with your actual username.
+User=youruser
+ExecStart=/usr/local/bin/mollyd /etc/mollyd.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
